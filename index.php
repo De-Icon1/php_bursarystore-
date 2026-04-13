@@ -138,7 +138,7 @@ if(isset($_POST['admin_login'])) {
                         </form>
 
                         <div class="text-center mt-3">
-                            <small class="text-muted">Need help signing in? Contact IT Support: <a href="mailto:it-support@oou.edu.ng">it-support@oou.edu.ng</a> • +234 800 000 0000</small>
+                            <small class="text-muted">Need help signing in? Contact IT Support: <a href="mailto:it-support@oou.edu.ng">it-support@oou.edu.ng</a> </small>
                         </div>
 
                     </div>

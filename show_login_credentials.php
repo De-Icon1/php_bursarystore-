@@ -11,6 +11,9 @@ while($r = $res->fetch_assoc()){
     // Map known roles to their dashboard pages. Unknown roles fallback to admin.
     $role = strtolower($r['role']);
     switch($role){
+        case 'superadmin':
+            $redirect = 'admin_dashboard.php';
+            break;
         case 'vc':
             $redirect = 'vc_dashboard.php';
             break;

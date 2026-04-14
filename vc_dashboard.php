@@ -91,6 +91,21 @@ if($has_stock_issues){
                     </div>
                 </div>
             </div>
+
+            <!-- VC Login Details & Instructions -->
+            <div class="row">
+                <div class="col-12">
+                    <div class="card-box">
+                        <h5 class="mb-3"><i class="fas fa-user-lock mr-2"></i>Login Details & Instructions</h5>
+                        <p class="mb-1"><strong>Username:</strong> <?php echo htmlspecialchars($username); ?></p>
+                        <p class="mb-1"><strong>Full Name:</strong> <?php echo htmlspecialchars($full_name); ?></p>
+                        <p class="mb-1"><strong>Role:</strong> <?php echo htmlspecialchars($role); ?></p>
+                        <p class="mb-1"><strong>Login Page:</strong> <a href="index.php">index.php</a></p>
+                        <p class="mb-1"><strong>Redirects to:</strong> VC Dashboard (reports) — use <a href="inventory_report.php">Stock Balance Report</a> for full details.</p>
+                        <p class="mb-0 text-muted">Password is hidden for security. If you need a password reset or a new account, contact the system administrator.</p>
+                    </div>
+                </div>
+            </div>
             
             <!-- Summary Cards -->
             <div class="row">

@@ -4,13 +4,38 @@ include('assets/inc/config.php');
 include('assets/inc/checklogins.php');
 check_login();
 
-// Only allow admin or director to manage users
-if(!in_array($_SESSION['role'] ?? '', ['admin','director'])){
+// Only allow admin, director or superadmin to manage users
+if(!in_array($_SESSION['role'] ?? '', ['admin','director','superadmin'])){
     header('Location: admin_dashboard.php');
     exit;
 }
 
+// Determine which roles the current user may assign
+$current_user_role = $_SESSION['role'] ?? '';
+$available_roles = [];
+if($current_user_role === 'superadmin'){
+    $available_roles = ['superadmin','admin','director','supervisor','storekeeper'];
+} elseif($current_user_role === 'admin'){
+    $available_roles = ['admin','director','supervisor','storekeeper'];
+} elseif($current_user_role === 'director'){
+    $available_roles = ['supervisor','storekeeper'];
+} else {
+    $available_roles = ['storekeeper'];
+}
+
+// Role hierarchy for permission checks (higher number = higher privilege)
+$role_hierarchy = [
+    'storekeeper' => 1,
+    'supervisor'  => 2,
+    'director'    => 3,
+    'admin'       => 4,
+    'superadmin'  => 5,
+];
+$current_user_level = $role_hierarchy[$current_user_role] ?? 0;
+
 $err = $success = '';
+$edit_user = null; // ensure variable exists before use to avoid notices
+$users = []; // ensure users array exists to avoid undefined variable warnings
 
 // Add user
 if(isset($_POST['add_user'])){
@@ -22,6 +47,12 @@ if(isset($_POST['add_user'])){
     if($username === '' || $password === '' || $full_name === ''){
         $err = 'Username, full name and password are required.';
     } else {
+        // enforce allowed roles
+        if(!in_array($role, $available_roles)){
+            $err = 'You are not permitted to assign that role.';
+        }
+        
+        if($err === ''){
         // check unique username
         $stmt = $mysqli->prepare('SELECT user_id FROM users WHERE username = ?');
         $stmt->bind_param('s', $username);
@@ -45,6 +76,7 @@ if(isset($_POST['add_user'])){
     }
 }
 
+
 // Update user
 if(isset($_POST['update_user'])){
     $uid = (int)($_POST['user_id'] ?? 0);
@@ -56,6 +88,28 @@ if(isset($_POST['update_user'])){
     if($uid <= 0 || $username === '' || $full_name === ''){
         $err = 'Invalid input for update.';
     } else {
+        // enforce allowed roles
+        if(!in_array($role, $available_roles)){
+            $err = 'You are not permitted to assign that role.';
+        }
+        
+        // ensure target user is not higher than current user
+        if($err === ''){
+            $t = $mysqli->prepare('SELECT role FROM users WHERE user_id = ?');
+            $t->bind_param('i', $uid);
+            $t->execute();
+            $res = $t->get_result();
+            $target = $res->fetch_assoc();
+            $t->close();
+            if($target){
+                $target_level = $role_hierarchy[$target['role']] ?? 0;
+                if($target_level > $current_user_level){
+                    $err = 'You are not permitted to modify a user with a higher role.';
+                }
+            }
+        }
+        
+        if($err === ''){
         // ensure username is unique for other users
         $stmt = $mysqli->prepare('SELECT user_id FROM users WHERE username = ? AND user_id != ?');
         $stmt->bind_param('si', $username, $uid);
@@ -92,14 +146,30 @@ if(isset($_POST['delete_user'])){
     } else if($uid == ($_SESSION['user_id'] ?? 0)){
         $err = 'You cannot delete your own account while logged in.';
     } else {
-        $del = $mysqli->prepare('DELETE FROM users WHERE user_id = ?');
-        $del->bind_param('i', $uid);
-        if($del->execute()){
-            $success = 'User deleted.';
+        // ensure target user is not higher than current user
+        $t = $mysqli->prepare('SELECT role FROM users WHERE user_id = ?');
+        $t->bind_param('i', $uid);
+        $t->execute();
+        $res = $t->get_result();
+        $target = $res->fetch_assoc();
+        $t->close();
+        if($target){
+            $target_level = $role_hierarchy[$target['role']] ?? 0;
+            if($target_level > $current_user_level){
+                $err = 'You are not permitted to delete a user with a higher role.';
+            } else {
+                $del = $mysqli->prepare('DELETE FROM users WHERE user_id = ?');
+                $del->bind_param('i', $uid);
+                if($del->execute()){
+                    $success = 'User deleted.';
+                } else {
+                    $err = 'Error deleting user: ' . $mysqli->error;
+                }
+                $del->close();
+            }
         } else {
-            $err = 'Error deleting user: ' . $mysqli->error;
+            $err = 'User not found.';
         }
-        $del->close();
     }
 }
 
@@ -117,11 +187,22 @@ if(isset($_GET['edit_id'])){
     }
 }
 
+// prevent editing users with higher roles
+if($edit_user){
+    $target_level = $role_hierarchy[$edit_user['role']] ?? 0;
+    if($target_level > $current_user_level){
+        $err = 'You are not permitted to edit a user with a higher role.';
+        $edit_user = null;
+    }
+}
+
 // fetch all users
 $users = [];
 $r = $mysqli->query('SELECT user_id, username, role, full_name, created_at FROM users ORDER BY username');
 if($r){
     while($row = $r->fetch_assoc()) $users[] = $row;
+}
+}
 }
 ?>
 <?php include('assets/inc/head.php'); ?>
@@ -144,7 +225,7 @@ if($r){
     <div class="row">
         <div class="col-12 col-lg-5 mb-3">
             <div class="card-box">
-                <?php if($edit_user): ?>
+                        <?php if($edit_user): ?>
                     <h5>Edit User: <?= htmlspecialchars($edit_user['username']) ?></h5>
                     <form method="POST">
                         <input type="hidden" name="user_id" value="<?= intval($edit_user['user_id']) ?>">
@@ -159,7 +240,7 @@ if($r){
                         <div class="form-group">
                             <label>Role</label>
                             <select name="role" class="form-control">
-                                <?php foreach(['admin','director','supervisor','storekeeper'] as $rl): ?>
+                                <?php foreach($available_roles as $rl): ?>
                                     <option value="<?= $rl ?>" <?= $edit_user['role'] === $rl ? 'selected' : '' ?>><?= ucfirst($rl) ?></option>
                                 <?php endforeach; ?>
                             </select>
@@ -185,10 +266,9 @@ if($r){
                         <div class="form-group">
                             <label>Role</label>
                             <select name="role" class="form-control">
-                                <option value="storekeeper">Storekeeper</option>
-                                <option value="supervisor">Supervisor</option>
-                                <option value="director">Director</option>
-                                <option value="admin">Admin</option>
+                                <?php foreach($available_roles as $rl): ?>
+                                    <option value="<?= $rl ?>"><?= ucfirst($rl) ?></option>
+                                <?php endforeach; ?>
                             </select>
                         </div>
                         <div class="form-group">
@@ -209,6 +289,11 @@ if($r){
                         <thead><tr><th>Username</th><th>Full Name</th><th>Role</th><th>Joined</th><th>Actions</th></tr></thead>
                         <tbody>
                         <?php foreach($users as $u): ?>
+                            <?php
+                                $target_level = $role_hierarchy[$u['role']] ?? 0;
+                                // skip users with higher roles than current user
+                                if($target_level > $current_user_level) continue;
+                            ?>
                             <tr>
                                 <td><?= htmlspecialchars($u['username']) ?></td>
                                 <td><?= htmlspecialchars($u['full_name']) ?></td>

@@ -30,21 +30,24 @@ if(isset($_POST['admin_login'])) {
         // verify password using standard PHP password hashing
         if(password_verify($entered_password, $db_password)){
 
-            // store session
+            // normalize role and store session
+            $role_normalized = strtolower(trim($user_role));
+            if($role_normalized === 'vice chancellor') $role_normalized = 'vc';
+
             $_SESSION['user_id']   = $user_id;
             $_SESSION['username']  = $db_username;
             $_SESSION['full_name'] = $full_name;
-            $_SESSION['role']      = $user_role;
+            $_SESSION['role']      = $role_normalized;
 
-            // role-based redirects
-            switch($user_role){
+            // role-based redirects (use normalized role)
+            switch($role_normalized){
                 case 'admin':
                     header("Location: admin_dashboard.php");
                     break;
-                case 'Vice Chancellor':
+                case 'vc':
                     header("Location: vc_dashboard.php");
                     break;
-                
+
                 default:
                     header("Location: admin_dashboard.php");
             }

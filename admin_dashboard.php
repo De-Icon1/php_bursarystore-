@@ -86,24 +86,35 @@ if(strtolower(trim($role)) === 'vice chancellor' || strtolower(trim($role)) === 
 
                         <?php
                         // Detect which column holds the item display name to avoid SQL errors
-                        $has_name_col = $mysqli->query("SHOW COLUMNS FROM items LIKE 'name'")->num_rows;
-                        $has_item_name_col = $mysqli->query("SHOW COLUMNS FROM items LIKE 'item_name'")->num_rows;
-                        if($has_name_col && $has_item_name_col){
-                            $item_col_where = "COALESCE(name,item_name)"; // for WHERE clauses without table alias
-                            $item_col_it = "COALESCE(it.name,it.item_name)"; // when using alias it
-                            $item_col_select = "COALESCE(it.item_name,it.name)"; // prefer item_name for historical display
-                        } elseif($has_name_col){
-                            $item_col_where = "name";
-                            $item_col_it = "it.name";
-                            $item_col_select = "it.name";
-                        } elseif($has_item_name_col){
-                            $item_col_where = "item_name";
-                            $item_col_it = "it.item_name";
-                            $item_col_select = "it.item_name";
-                        } else {
-                            $item_col_where = "''";
-                            $item_col_it = "''";
-                            $item_col_select = "''";
+                        $item_col_where = "''";
+                        $item_col_it = "''";
+                        $item_col_select = "''";
+
+                        $has_items_table = false;
+                        $res_tables = $mysqli->query("SHOW TABLES LIKE 'items'");
+                        if($res_tables && $res_tables->num_rows > 0){
+                            $has_items_table = true;
+                        }
+
+                        if($has_items_table){
+                            $res_name = $mysqli->query("SHOW COLUMNS FROM items LIKE 'name'");
+                            $res_item_name = $mysqli->query("SHOW COLUMNS FROM items LIKE 'item_name'");
+                            $has_name_col = ($res_name && $res_name->num_rows > 0);
+                            $has_item_name_col = ($res_item_name && $res_item_name->num_rows > 0);
+
+                            if($has_name_col && $has_item_name_col){
+                                $item_col_where = "COALESCE(name,item_name)"; // for WHERE clauses without table alias
+                                $item_col_it = "COALESCE(it.name,it.item_name)"; // when using alias it
+                                $item_col_select = "COALESCE(it.item_name,it.name)"; // prefer item_name for historical display
+                            } elseif($has_name_col){
+                                $item_col_where = "name";
+                                $item_col_it = "it.name";
+                                $item_col_select = "it.name";
+                            } elseif($has_item_name_col){
+                                $item_col_where = "item_name";
+                                $item_col_it = "it.item_name";
+                                $item_col_select = "it.item_name";
+                            }
                         }
 
                         // Basic counts for inventory cards using the advanced schema (items, stock_balance, stock_issues)
@@ -378,15 +389,20 @@ if(strtolower(trim($role)) === 'vice chancellor' || strtolower(trim($role)) === 
                                                         ORDER BY it.created_at DESC
                                                         LIMIT 10";
                                                 $res = $mysqli->query($sql);
-                                                while($row = $res->fetch_assoc()){
-                                                    echo "<tr>";
-                                                    echo "<td>".htmlentities($row['created_at'])."</td>";
-                                                    echo "<td>".htmlentities($row['item_name'])."</td>";
-                                                    echo "<td>".htmlentities($row['category'])."</td>";
-                                                    echo "<td>".htmlentities($row['unit'])."</td>";
-                                                    echo "<td>".htmlentities($row['qty'])."</td>";
-                                                    echo "<td><a href='store_items.php?edit_id={$row['item_id']}' class='btn btn-xs btn-primary'>Edit</a> <a href='stock_management.php?item_id={$row['item_id']}' class='btn btn-xs btn-success'>Manage</a></td>";
-                                                    echo "</tr>";
+                                                if($res){
+                                                    while($row = $res->fetch_assoc()){
+                                                        echo "<tr>";
+                                                        echo "<td>".htmlentities($row['created_at'])."</td>";
+                                                        echo "<td>".htmlentities($row['item_name'])."</td>";
+                                                        echo "<td>".htmlentities($row['category'])."</td>";
+                                                        echo "<td>".htmlentities($row['unit'])."</td>";
+                                                        echo "<td>".htmlentities($row['qty'])."</td>";
+                                                        echo "<td><a href='store_items.php?edit_id={$row['item_id']}' class='btn btn-xs btn-primary'>Edit</a> <a href='stock_management.php?item_id={$row['item_id']}' class='btn btn-xs btn-success'>Manage</a></td>";
+                                                        echo "</tr>";
+                                                    }
+                                                } else {
+                                                    // Query failed (missing tables/columns) — show a friendly message
+                                                    echo "<tr><td colspan=6 class='text-center text-muted'>No recent items available</td></tr>";
                                                 }
                                                 ?>
                                             </tbody>

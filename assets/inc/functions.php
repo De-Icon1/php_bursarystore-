@@ -43,4 +43,19 @@ function log_action()
         }
     }
 }
+
+/**
+ * Run a mysqli query safely, catching exceptions when mysqli is configured
+ * to throw. Returns the mysqli_result on success or false on failure.
+ */
+function safe_query($mysqli, $sql)
+{
+    try {
+        // Prefer the mysqli object method
+        return $mysqli->query($sql);
+    } catch (Exception $e) {
+        // swallow and return false so callers can handle gracefully
+        return false;
+    }
+}
 ?>

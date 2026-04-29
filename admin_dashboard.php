@@ -388,7 +388,11 @@ if(strtolower(trim($role)) === 'vice chancellor' || strtolower(trim($role)) === 
                                                         LEFT JOIN stock_balance sb ON it.item_id = sb.item_id
                                                         ORDER BY it.created_at DESC
                                                         LIMIT 10";
-                                                $res = $mysqli->query($sql);
+                                                if(function_exists('safe_query')){
+                                                    $res = safe_query($mysqli, $sql);
+                                                } else {
+                                                    try { $res = $mysqli->query($sql); } catch(Exception $e){ $res = false; }
+                                                }
                                                 if($res){
                                                     while($row = $res->fetch_assoc()){
                                                         echo "<tr>";

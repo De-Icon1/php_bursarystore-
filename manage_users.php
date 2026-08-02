@@ -5,13 +5,13 @@ include('assets/inc/checklogins.php');
 check_login();
 
 // Only allow admin, director or superadmin to manage users
-if(!in_array($_SESSION['role'] ?? '', ['admin','director','superadmin'])){
+if(!in_array(strtolower($_SESSION['role'] ?? ''), ['admin','director','superadmin'])){
     header('Location: admin_dashboard.php');
     exit;
 }
 
 // Determine which roles the current user may assign
-$current_user_role = $_SESSION['role'] ?? '';
+$current_user_role = strtolower($_SESSION['role'] ?? '');
 $available_roles = [];
 if($current_user_role === 'superadmin'){
     $available_roles = ['superadmin','admin','director','supervisor','storekeeper'];
@@ -64,7 +64,8 @@ if(isset($_POST['add_user'])){
         } else {
             $stmt->close();
             $hash = password_hash($password, PASSWORD_DEFAULT);
-            $ins = $mysqli->prepare('INSERT INTO users (username, password, role, full_name, created_at) VALUES (?, ?, ?, ?, NOW())');
+            // new users must set their own password on first login
+            $ins = $mysqli->prepare('INSERT INTO users (username, password, role, full_name, must_change_password, created_at) VALUES (?, ?, ?, ?, 1, NOW())');
             $ins->bind_param('ssss', $username, $hash, $role, $full_name);
             if($ins->execute()){
                 $success = 'User added successfully.';
@@ -122,7 +123,8 @@ if(isset($_POST['update_user'])){
             $stmt->close();
             if($password !== ''){
                 $hash = password_hash($password, PASSWORD_DEFAULT);
-                $upd = $mysqli->prepare('UPDATE users SET username = ?, password = ?, role = ?, full_name = ? WHERE user_id = ?');
+                // an admin-issued password reset must be changed by the user at next login
+                $upd = $mysqli->prepare('UPDATE users SET username = ?, password = ?, role = ?, full_name = ?, must_change_password = 1 WHERE user_id = ?');
                 $upd->bind_param('ssssi', $username, $hash, $role, $full_name, $uid);
             } else {
                 $upd = $mysqli->prepare('UPDATE users SET username = ?, role = ?, full_name = ? WHERE user_id = ?');

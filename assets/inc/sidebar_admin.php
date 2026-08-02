@@ -5,7 +5,11 @@ if (!isset($_SESSION['role'])) {
 	exit;
 }
 
-$role = $_SESSION['role'];
+$role = strtolower($_SESSION['role'] ?? '');
+$dashboard_page = 'admin_dashboard.php';
+if (in_array($role, ['storekeeper', 'supervisor'])) {
+	$dashboard_page = 'store_dashboard.php';
+}
 ?>
 
 <div class="left-side-menu">
@@ -24,7 +28,7 @@ $role = $_SESSION['role'];
 		<div id="sidebar-menu">
 			<ul class="metismenu" id="side-menu">
 				<li>
-					<a href="admin_dashboard.php">
+					<a href="<?php echo $dashboard_page; ?>">
 						<i class="fe-monitor"></i>
 						<span> Dashboard </span>
 					</a>

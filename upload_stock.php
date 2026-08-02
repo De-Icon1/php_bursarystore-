@@ -19,6 +19,7 @@ if(isset($_POST['upload'])){
         $has_categories_tbl = $mysqli->query("SHOW TABLES LIKE 'categories'");
         $has_category_id_col = $mysqli->query("SHOW COLUMNS FROM items LIKE 'category_id'");
         $has_items_category_col = $mysqli->query("SHOW COLUMNS FROM items LIKE 'category'");
+        $has_item_categories_up = $mysqli->query("SHOW TABLES LIKE 'item_categories'")->num_rows > 0;
 
         while(($data = fgetcsv($handle, 1000, ",")) !== FALSE){
           $cols = count($data);
@@ -39,9 +40,16 @@ if(isset($_POST['upload'])){
 
           $item_id = null;
 
-          if($csv_category !== ''){
+                    if($csv_category !== ''){
             // Try match by name + category, using categories table when available
-            if($has_categories_tbl && $has_categories_tbl->num_rows && $has_category_id_col && $has_category_id_col->num_rows){
+            if($has_item_categories_up){
+              $sql = "SELECT it.item_id
+                  FROM items it
+                  JOIN item_categories ic ON it.item_id = ic.item_id
+                  JOIN categories c ON ic.category_id = c.category_id
+                  WHERE it.item_name = ? AND c.name = ?
+                  LIMIT 2";
+            } elseif($has_categories_tbl && $has_categories_tbl->num_rows && $has_category_id_col && $has_category_id_col->num_rows){
               $sql = "SELECT it.item_id
                   FROM items it
                   JOIN categories c ON it.category_id = c.category_id

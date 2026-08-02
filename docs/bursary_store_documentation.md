@@ -339,13 +339,13 @@ To support any new product family (e.g., envelopes, markers):
 
 1. Install XAMPP (Apache + MySQL) on Windows.
 2. Place the project folder under `C:/xampp/htdocs/bursary/`.
-3. Configure database in `assets/inc/config.php` (default DB name: `bursarystore`).
+3. Configure database in `assets/inc/config.php` (default DB name: `bursary`).
 4. Import migrations in `sql/migrations/` into the MySQL database (run in order: 000, 001, 002, 003, 004, 005, etc.).
 5. Optionally use scripts under `tools/` to create an admin user and seed test data.
 
 ### 7.2 Backups
 
-- Regularly export the `bursarystore` database using phpMyAdmin or `mysqldump`.
+- Regularly export the `bursary` database using phpMyAdmin or `mysqldump`.
 - Backup the entire project directory, especially:
   - `/assets/inc/config.php` (without committing passwords to version control).
   - Custom scripts and documentation under `/docs/`.

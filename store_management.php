@@ -282,7 +282,17 @@ if(isset($_POST['update_stock'])){
         <thead><tr><th>Item</th><th>Category</th><th>Quantity</th><th>Last Updated</th></tr></thead>
         <tbody>
           <?php
-          $sql = "SELECT sb.quantity, sb.last_updated, it.item_name, c.name AS category FROM stock_balance sb JOIN items it ON sb.item_id = it.item_id LEFT JOIN categories c ON it.category_id = c.category_id ORDER BY it.item_name";
+          // Check for junction table
+          $has_item_categories_sm = $mysqli->query("SHOW TABLES LIKE 'item_categories'")->num_rows > 0;
+          if ($has_item_categories_sm) {
+            $sql = "SELECT sb.quantity, sb.last_updated, it.item_name,
+                           (SELECT GROUP_CONCAT(c2.name ORDER BY c2.name SEPARATOR ', ') FROM item_categories ic2 JOIN categories c2 ON ic2.category_id = c2.category_id WHERE ic2.item_id = it.item_id) AS category
+                    FROM stock_balance sb
+                    JOIN items it ON sb.item_id = it.item_id
+                    ORDER BY it.item_name";
+          } else {
+            $sql = "SELECT sb.quantity, sb.last_updated, it.item_name, c.name AS category FROM stock_balance sb JOIN items it ON sb.item_id = it.item_id LEFT JOIN categories c ON it.category_id = c.category_id ORDER BY it.item_name";
+          }
           $res = $mysqli->query($sql);
           while($row = $res->fetch_assoc()){
             echo "<tr>";

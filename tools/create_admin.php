@@ -16,7 +16,8 @@ if(!$password){
 
 $hash = password_hash($password, PASSWORD_DEFAULT);
 
-$stmt = $mysqli->prepare("INSERT INTO users (username, password, role, full_name) VALUES (?, ?, ?, ?)");
+// force the admin to set their own password on first login
+$stmt = $mysqli->prepare("INSERT INTO users (username, password, role, full_name, must_change_password) VALUES (?, ?, ?, ?, 1)");
 if(!$stmt){
     fwrite(STDERR, "Prepare failed: " . $mysqli->error . "\n");
     exit(1);

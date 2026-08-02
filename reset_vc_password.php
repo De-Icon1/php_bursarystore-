@@ -26,7 +26,8 @@ if (empty($username) || empty($password)) {
 
 $hash = password_hash($password, PASSWORD_DEFAULT);
 
-$stmt = $mysqli->prepare('UPDATE users SET password = ? WHERE username = ?');
+// force a password change at next login after a reset
+$stmt = $mysqli->prepare('UPDATE users SET password = ?, must_change_password = 1 WHERE username = ?');
 if (!$stmt) {
     echo "DB prepare failed: " . $mysqli->error . "\n";
     exit(1);

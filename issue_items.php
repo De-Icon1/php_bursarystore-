@@ -8,101 +8,157 @@ check_login();
 $err = '';
 $success = '';
 
-// Optional: debug which file is executing
-if (isset($_GET['debug_path'])) {
-    echo '<pre>DEBUG issue_items.php path: ' . __FILE__ . '</pre>';
-    exit;
+// Load items for dropdown first
+$items = [];
+$res = $mysqli->query("SELECT * FROM items");
+if ($res) {
+    while ($row = $res->fetch_assoc()) {
+        $id = $row['item_id'] ?? ($row['id'] ?? null);
+        if (!$id) continue;
+
+        $display = !empty($row['item_name']) ? $row['item_name'] : ($row['name'] ?? '');
+
+        $items[] = [
+            'item_id'  => $id,
+            'label'    => $display,
+        ];
+    }
+    $res->close();
 }
 
-if (isset($_POST['issue'])) {
-  $item_id   = (int)($_POST['item_id'] ?? 0);
-  $unit      = trim($_POST['unit'] ?? '');
-  $qty       = (int)($_POST['quantity'] ?? 0);
-  $purpose   = trim($_POST['purpose'] ?? '');
-  $issued_by = $_SESSION['username'] ?? ($_SESSION['full_name'] ?? 'system');
-  $issued_by_id = (int)($_SESSION['user_id'] ?? 0);
+// Check for junction table
+$has_item_categories = false;
+$check_junc = $mysqli->query("SHOW TABLES LIKE 'item_categories'");
+$has_item_categories = $check_junc && $check_junc->num_rows > 0;
 
-    if ($item_id <= 0) {
-        $err = 'Please select an item.';
-    } elseif ($qty <= 0) {
-        $err = 'Quantity must be greater than zero.';
-    } elseif ($unit === '') {
-        $err = 'Please enter the unit to issue to.';
-    } else {
-      // Check available stock using stock_transactions helper
-      $cur_qty = get_item_current_stock($item_id);
+// Check if categories table exists (for fallback)
+$has_categories = false;
+$check_cats = $mysqli->query("SHOW TABLES LIKE 'categories'");
+$has_categories = $check_cats && $check_cats->num_rows > 0;
 
-      if ($cur_qty < $qty) {
-            $err = 'Not enough stock. Available: ' . $cur_qty;
-        } else {
-            $mysqli->begin_transaction();
-            try {
-                // Insert into stock_issues (unit stored as free-text)
-          $issue_id = null;
-          if ($ins = $mysqli->prepare('INSERT INTO stock_issues (item_id, unit, quantity, issued_by, purpose) VALUES (?, ?, ?, ?, ?)')) {
-            $ins->bind_param('isiss', $item_id, $unit, $qty, $issued_by, $purpose);
-            $ins->execute();
-            $issue_id = $ins->insert_id;
-            $ins->close();
-          }
+// Build item → categories map ({id, name} pairs) using the junction table
+$item_category_map = [];
+if ($has_item_categories) {
+    $junc_res = $mysqli->query("
+        SELECT ic.item_id, c.category_id, c.name AS category
+        FROM item_categories ic
+        JOIN categories c ON ic.category_id = c.category_id
+        ORDER BY c.name
+    ");
+    if ($junc_res) {
+        while ($row = $junc_res->fetch_assoc()) {
+            $item_id = (int)$row['item_id'];
+            if (!isset($item_category_map[$item_id])) {
+                $item_category_map[$item_id] = [];
+            }
+            $item_category_map[$item_id][] = ['id' => (int)$row['category_id'], 'name' => $row['category']];
+        }
+        $junc_res->close();
+    }
+} else {
+    // Fallback: use the category column directly from items
+    // Detect which category column exists
+    $has_cat_id_col = false;
+    $chk = $mysqli->query("SHOW COLUMNS FROM items LIKE 'category_id'");
+    if ($chk) $has_cat_id_col = $chk->num_rows > 0;
+    
+    $has_cat_col = false;
+    $chk = $mysqli->query("SHOW COLUMNS FROM items LIKE 'category'");
+    if ($chk) $has_cat_col = $chk->num_rows > 0;
 
-                // Record stock_entries movement (qty_out)
-                if ($ent = $mysqli->prepare('INSERT INTO stock_entries (item_id, qty_out, reference, note, created_by) VALUES (?, ?, ?, ?, ?)')) {
-                    $ent->bind_param('idsss', $item_id, $qty, $purpose, $purpose, $issued_by);
-                    $ent->execute();
-                    $ent->close();
+    $has_name_col = false;
+    $chk = $mysqli->query("SHOW COLUMNS FROM items LIKE 'name'");
+    if ($chk) $has_name_col = $chk->num_rows > 0;
+    
+    foreach ($items as $it) {
+        $id = $it['item_id'];
+        static $cat_cache = [];
+        if (!isset($cat_cache[$id])) {
+            $cat_name = '';
+            if ($has_cat_id_col && $has_categories) {
+                // Try to get category name via foreign key
+                $stmt = $mysqli->prepare("SELECT c.name FROM items i LEFT JOIN categories c ON i.category_id = c.category_id WHERE i.item_id = ?");
+                if ($stmt) {
+                    $stmt->bind_param('i', $id);
+                    $stmt->execute();
+                    $stmt->bind_result($cat_name);
+                    $stmt->fetch();
+                    $stmt->close();
                 }
-
-          // Record stock transaction (negative qty_change dispatch)
-          if ($issue_id && $issued_by_id && $mysqli->query("SHOW TABLES LIKE 'stock_transactions'")) {
-            if ($tx = $mysqli->prepare("INSERT INTO stock_transactions (item_id, qty_change, tx_type, reference_id, user_id, note) VALUES (?, ?, 'dispatch', ?, ?, ?)")) {
-              $neg_qty = -1 * (int)$qty;
-              $note = 'Issue to ' . $unit . ($purpose ? ' - ' . $purpose : '');
-              $tx->bind_param('iiiis', $item_id, $neg_qty, $issue_id, $issued_by_id, $note);
-              $tx->execute();
-              $tx->close();
+            } elseif ($has_cat_col) {
+                // Direct text category column
+                $stmt = $mysqli->prepare("SELECT category FROM items WHERE item_id = ?");
+                if ($stmt) {
+                    $stmt->bind_param('i', $id);
+                    $stmt->execute();
+                    $stmt->bind_result($cat_name);
+                    $stmt->fetch();
+                    $stmt->close();
+                }
             }
-          }
-
-                $mysqli->commit();
-                $success = 'Item issued successfully.';
-            } catch (Throwable $e) {
-                $mysqli->rollback();
-                $err = 'Error issuing item: ' . $e->getMessage();
-            }
+            $cat_cache[$id] = $cat_name ?: '';
+        }
+        if (!empty($cat_cache[$id])) {
+            $item_category_map[$id][] = ['id' => 0, 'name' => $cat_cache[$id]];
         }
     }
 }
 
-// Load items for dropdown, mirroring stationery_store.php logic
-$items = [];
-$res = $mysqli->query("SELECT * FROM items");
-if ($res) {
-  while ($row = $res->fetch_assoc()) {
-    // determine id (support both item_id and id)
-    $id = $row['item_id'] ?? ($row['id'] ?? null);
-    if (!$id) continue;
+// ✅ Process form
+if (isset($_POST['issue'])) {
+    $item_ids   = array_map('intval', $_POST['item_ids'] ?? []);
+    $categories = $_POST['categories'] ?? [];
+    $quantities = array_map('intval', $_POST['quantity'] ?? []);
+    $unit       = trim($_POST['unit'] ?? '');
+    $purpose    = trim($_POST['purpose'] ?? '');
+    $collector_id = trim($_POST['collector_id'] ?? '');
+    $issued_by  = $_SESSION['username'] ?? ($_SESSION['full_name'] ?? 'system');
+    $issued_by_id = (int)($_SESSION['user_id'] ?? 0);
 
-    // display name fallbacks
-    $display = '';
-    if (isset($row['item_name']) && $row['item_name'] !== null && $row['item_name'] !== '') {
-      $display = $row['item_name'];
-    } elseif (isset($row['name']) && $row['name'] !== null) {
-      $display = $row['name'];
+        if (empty($item_ids)) {
+        $err = 'Please select one or more items to issue.';
+    } elseif ($unit === '') {
+        $err = 'Please enter the unit to issue to.';
+    } elseif ($collector_id === '') {
+        $err = 'Please enter the staff ID for the collector.';
+    } else {
+        // Process each item issue
+        $mysqli->begin_transaction();
+        try {
+            for ($i = 0; $i < count($item_ids); $i++) {
+                $iid = $item_ids[$i];
+                $cid = isset($categories[$i]) ? (int)$categories[$i] : 0;
+                $cat_id = $cid > 0 ? $cid : null;
+                $qty = $quantities[$i] ?? 0;
+
+                if ($iid <= 0 || $qty <= 0) continue;
+
+                // Insert into stock_issues
+                $stmt = $mysqli->prepare("INSERT INTO stock_issues (item_id, category_id, unit, quantity, issued_by, purpose) VALUES (?, ?, ?, ?, ?, ?)");
+                if (!$stmt) throw new Exception('Prepare stock_issues failed: ' . $mysqli->error);
+                $stmt->bind_param('iisiss', $iid, $cat_id, $unit, $qty, $issued_by, $purpose);
+                if (!$stmt->execute()) throw new Exception('Execute stock_issues failed: ' . $stmt->error);
+                $stmt->close();
+
+                // Also insert into stock_transactions as a negative change
+                $tx_note = "Issued to {$unit}";
+                $stmt2 = $mysqli->prepare("INSERT INTO stock_transactions (item_id, category_id, qty_change, tx_type, reference_id, user_id, note) VALUES (?, ?, ?, 'dispatch', ?, ?, ?)");
+                if ($stmt2) {
+                    $neg_qty = -$qty;
+                    $ref_id = $issued_by_id;
+                    $stmt2->bind_param('iiiiss', $iid, $cat_id, $neg_qty, $ref_id, $issued_by_id, $tx_note);
+                    $stmt2->execute();
+                    $stmt2->close();
+                }
+            }
+            $mysqli->commit();
+            $success = 'Items issued successfully!';
+        } catch (Exception $e) {
+            $mysqli->rollback();
+            $err = 'Error issuing items: ' . $e->getMessage();
+        }
     }
-
-    // category string as used in stationery_store (e.g. "A4")
-    $category = $row['category'] ?? ($row['category_name'] ?? '');
-
-    $items[] = [
-      'item_id'  => $id,
-      'label'    => $display,
-      'category' => $category,
-    ];
-  }
-  $res->close();
 }
-
 ?>
 <?php include 'assets/inc/head.php'; ?>
 <body>
@@ -123,67 +179,113 @@ if ($res) {
     <div class="card-box">
       <form method="post">
         <div class="form-group">
-          <label>Item</label>
-          <select name="item_id" class="form-control" required>
-            <option value="">-- Select Item --</option>
-            <?php foreach ($items as $it): ?>
-              <option value="<?php echo (int)$it['item_id']; ?>" data-category="<?php echo htmlentities($it['category']); ?>">
-                <?php echo htmlentities($it['label']); ?>
-              </option>
-            <?php endforeach; ?>
-          </select>
+          <label>Items</label>
+          <div class="table-responsive">
+            <table class="table table-bordered table-sm mb-0">
+              <thead>
+                <tr>
+                                    <th>Item</th>
+                  <th>Category (select after item)</th>
+                  <th style="width: 15%;">Quantity</th>
+                  <th style="width: 10%;">Action</th>
+                </tr>
+              </thead>
+              <tbody id="issue-items-body">
+                <tr>
+                  <td>
+                    <select name="item_ids[]" class="form-control item-select" required>
+                      <option value="">-- Select Item --</option>
+                      <?php foreach ($items as $it): ?>
+                        <option value="<?php echo (int)$it['item_id']; ?>">
+                          <?php echo htmlentities($it['label']); ?>
+                        </option>
+                      <?php endforeach; ?>
+                    </select>
+                  </td>
+                  <td>
+                    <select name="categories[]" class="form-control category-select" required>
+                      <option value="">-- Select Category --</option>
+                      <!-- Categories will be populated dynamically -->
+                    </select>
+                  </td>
+                  <td>
+                    <input type="number" name="quantity[]" class="form-control" min="0" step="1" placeholder="0" required>
+                  </td>
+                  <td class="text-center">
+                    <button type="button" class="btn btn-danger btn-sm remove-row">Remove</button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <button type="button" id="add-row" class="btn btn-secondary btn-sm mt-2">+ Add Another Item</button>
         </div>
 
         <div class="form-group">
-          <label>Category</label>
-          <input type="text" id="issue-item-category" class="form-control" readonly>
+          <label>Collector Staff ID</label>
+          <input type="text" name="collector_id" class="form-control" placeholder="Enter staff ID collecting the items" required>
         </div>
 
         <div class="form-group">
-          <label>Issue To (Unit)</label>
-          <input type="text" name="unit" class="form-control" placeholder="e.g. Administration, Registry" required>
+          <label>Issue To Unit</label>
+          <input type="text" name="unit" class="form-control" placeholder="Enter unit to issue items to" required>
         </div>
 
         <div class="form-group">
-          <label>Quantity</label>
-          <input type="number" name="quantity" class="form-control" step="1" min="1" required>
+          <label>Purpose</label>
+          <input type="text" name="purpose" class="form-control" placeholder="Enter purpose of issue (optional)">
         </div>
 
-        <div class="form-group">
-          <label>Purpose / Reference</label>
-          <input type="text" name="purpose" class="form-control" placeholder="Job card / purpose">
-        </div>
-
-        <button type="submit" name="issue" class="btn btn-warning">Issue Item</button>
+        <button type="submit" name="issue" class="btn btn-primary">Issue Items</button>
       </form>
     </div>
   </div>
 </div>
 
-<?php include 'assets/inc/footer.php'; ?>
-</body>
-
 <script>
-// Auto-fill read-only Category field when an item is selected
-document.addEventListener('DOMContentLoaded', function () {
-  var itemSelect = document.querySelector('select[name="item_id"]');
-  var categoryInput = document.getElementById('issue-item-category');
-  if (!itemSelect || !categoryInput) return;
+  const itemCategoryMap = <?php echo json_encode($item_category_map); ?>;
 
-  function updateCategory() {
-    var opt = itemSelect.options[itemSelect.selectedIndex];
-    if (!opt) {
-      categoryInput.value = '';
-      return;
-    }
-    var cat = opt.getAttribute('data-category') || '';
-    categoryInput.value = cat;
-  }
+  document.addEventListener('DOMContentLoaded', function() {
+    const addRowBtn = document.getElementById('add-row');
+    const tbody = document.getElementById('issue-items-body');
 
-  itemSelect.addEventListener('change', updateCategory);
-  updateCategory();
-});
+    addRowBtn.addEventListener('click', function() {
+      const firstRow = tbody.querySelector('tr');
+      const newRow = firstRow.cloneNode(true);
+      newRow.querySelectorAll('select, input').forEach(el => el.value = '');
+      tbody.appendChild(newRow);
+    });
+
+    tbody.addEventListener('click', function(e) {
+      if (e.target.classList.contains('remove-row')) {
+        const rows = tbody.querySelectorAll('tr');
+        if (rows.length > 1) {
+          e.target.closest('tr').remove();
+        } else {
+          alert('You must keep at least one item row.');
+        }
+      }
+    });
+
+    tbody.addEventListener('change', function(e) {
+      if (e.target.classList.contains('item-select')) {
+        const itemId = e.target.value;
+        const categorySelect = e.target.closest('tr').querySelector('.category-select');
+
+        // Clear existing options
+        categorySelect.innerHTML = '<option value="">-- Select Category --</option>';
+
+        if (itemCategoryMap[itemId]) {
+          itemCategoryMap[itemId].forEach(cat => {
+            const opt = document.createElement('option');
+            opt.value = cat.id;
+            opt.textContent = cat.name;
+            categorySelect.appendChild(opt);
+          });
+        }
+      }
+    });
+  });
 </script>
-
 </body>
 </html>

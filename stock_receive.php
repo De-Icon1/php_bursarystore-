@@ -25,151 +25,44 @@ if (isset($_POST['receive'])) {
         $err = "Quantity must be greater than zero.";
     } elseif (empty($supplier)) {
         $err = "Supplier name is required.";
-    } else {
+        } else {
         $mysqli->begin_transaction();
 
         try {
-            // Ensure we post into a category-specific item.
-            // For each (base item, category) pair we use or create a variant
-            // like "Paper (A5)" so A5/Legal stock is not merged into A4.
-            if ($item > 0 && $category_id > 0) {
-                $item_name = null;
-                $unit = null;
-
-                // Load the selected base item (schema-agnostic)
-                $stmt = $mysqli->prepare("SELECT * FROM items WHERE item_id = ? LIMIT 1");
-                if ($stmt) {
-                    $stmt->bind_param('i', $item);
-                    $stmt->execute();
-                    $res = $stmt->get_result();
-                    if ($res && ($row = $res->fetch_assoc())) {
-                        $item_name = $row['item_name'] ?? ($row['name'] ?? null);
-                        $unit = $row['unit'] ?? ($row['unit_measure'] ?? null);
-                    }
-                    $stmt->close();
-                }
-
-                // Look up the chosen category name (e.g. A4, Legal, A5)
-                $cat_name = null;
-                $stmt = $mysqli->prepare("SELECT name FROM categories WHERE category_id = ? LIMIT 1");
-                if ($stmt) {
-                    $stmt->bind_param('i', $category_id);
-                    $stmt->execute();
-                    $stmt->bind_result($cat_name_val);
-                    if ($stmt->fetch()) {
-                        $cat_name = $cat_name_val;
-                    }
-                    $stmt->close();
-                }
-
-                if ($item_name && $cat_name) {
-                    // If the item name already ends with "(Category)", just reuse it
-                    $suffix = ' (' . $cat_name . ')';
-                    $need_variant = true;
-                    if (strlen($item_name) >= strlen($suffix)) {
-                        $end = substr($item_name, -strlen($suffix));
-                        if (strcasecmp($end, $suffix) === 0) {
-                            $need_variant = false;
-                        }
-                    }
-
-                    if ($need_variant) {
-                        $variant_name = $item_name . ' (' . $cat_name . ')';
-
-                        // Detect schema (item_name vs name)
-                        $has_item_name_res = $mysqli->query("SHOW COLUMNS FROM items LIKE 'item_name'");
-                        $has_item_name = $has_item_name_res && $has_item_name_res->num_rows > 0;
-
-                        // Check if variant already exists
-                        if ($has_item_name) {
-                            $stmt = $mysqli->prepare("SELECT item_id FROM items WHERE item_name = ? LIMIT 1");
-                        } else {
-                            $stmt = $mysqli->prepare("SELECT item_id FROM items WHERE name = ? LIMIT 1");
-                        }
-
-                        $variant_id = null;
-                        if ($stmt) {
-                            $stmt->bind_param('s', $variant_name);
-                            $stmt->execute();
-                            $stmt->bind_result($found_id);
-                            if ($stmt->fetch()) {
-                                $variant_id = (int)$found_id;
-                            }
-                            $stmt->close();
-                        }
-
-                        if ($variant_id) {
-                            $item = $variant_id;
-                        } else {
-                            // Create a new variant item with same unit but specific category
-                            $unit_to_use = $unit ?: 'pcs';
-
-                            $has_catid_res = $mysqli->query("SHOW COLUMNS FROM items LIKE 'category_id'");
-                            $has_catid = $has_catid_res && $has_catid_res->num_rows > 0;
-
-                            if ($has_item_name) {
-                                if ($has_catid) {
-                                    $stmt = $mysqli->prepare("INSERT INTO items (item_name, category_id, unit) VALUES (?, ?, ?)");
-                                    if ($stmt) {
-                                        $stmt->bind_param('sis', $variant_name, $category_id, $unit_to_use);
-                                        $stmt->execute();
-                                        $item = $stmt->insert_id;
-                                        $stmt->close();
-                                    }
-                                } else {
-                                    $stmt = $mysqli->prepare("INSERT INTO items (item_name, unit) VALUES (?, ?)");
-                                    if ($stmt) {
-                                        $stmt->bind_param('ss', $variant_name, $unit_to_use);
-                                        $stmt->execute();
-                                        $item = $stmt->insert_id;
-                                        $stmt->close();
-                                    }
-                                }
-                            } else {
-                                // Legacy schema: name/category/unit_measure
-                                $cat_label = $cat_name;
-                                $stmt = $mysqli->prepare("INSERT INTO items (name, category, unit_measure) VALUES (?, ?, ?)");
-                                if ($stmt) {
-                                    $stmt->bind_param('sss', $variant_name, $cat_label, $unit_to_use);
-                                    $stmt->execute();
-                                    $item = $stmt->insert_id;
-                                    $stmt->close();
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
             // Use migration schema: stock_receipts, receipt_items, stock_transactions
             $note = "Received from " . $supplier;
 
             // 1) stock_receipts
-            $stmt = $mysqli->prepare("INSERT INTO stock_receipts (supplier, received_by, note) VALUES (?, ?, ?)");
-            if (!$stmt) {
-                throw new Exception('DB prepare failed (stock_receipts): ' . $mysqli->error);
+            $has_receipt_category = false;
+            $col_check = $mysqli->query("SHOW COLUMNS FROM stock_receipts LIKE 'category_id'");
+            $has_receipt_category = $col_check && $col_check->num_rows > 0;
+
+            if ($has_receipt_category && $category_id > 0) {
+                $stmt = $mysqli->prepare("INSERT INTO stock_receipts (supplier, received_by, note, category_id) VALUES (?, ?, ?, ?)");
+                if (!$stmt) throw new Exception('DB prepare failed (stock_receipts): ' . $mysqli->error);
+                $stmt->bind_param('sisi', $supplier, $received_by, $note, $category_id);
+            } else {
+                $stmt = $mysqli->prepare("INSERT INTO stock_receipts (supplier, received_by, note) VALUES (?, ?, ?)");
+                if (!$stmt) throw new Exception('DB prepare failed (stock_receipts): ' . $mysqli->error);
+                $stmt->bind_param('sis', $supplier, $received_by, $note);
             }
-            $stmt->bind_param('sis', $supplier, $received_by, $note);
             $stmt->execute();
             $receipt_id = $mysqli->insert_id;
             $stmt->close();
 
             // 2) receipt_items
-            $stmt = $mysqli->prepare("INSERT INTO receipt_items (receipt_id, item_id, quantity, unit_cost) VALUES (?, ?, ?, ?)");
-            if (!$stmt) {
-                throw new Exception('DB prepare failed (receipt_items): ' . $mysqli->error);
-            }
+            $stmt = $mysqli->prepare("INSERT INTO receipt_items (receipt_id, item_id, category_id, quantity, unit_cost) VALUES (?, ?, ?, ?, ?)");
+            if (!$stmt) throw new Exception('DB prepare failed (receipt_items): ' . $mysqli->error);
             $unit_cost = $cost_per_unit;
-            $stmt->bind_param('iiid', $receipt_id, $item, $qty, $unit_cost);
+            $receipt_category_id = $category_id > 0 ? $category_id : null;
+            $stmt->bind_param('iiiid', $receipt_id, $item, $receipt_category_id, $qty, $unit_cost);
             $stmt->execute();
             $stmt->close();
 
             // 3) stock_transactions
-            $stmt = $mysqli->prepare("INSERT INTO stock_transactions (item_id, qty_change, tx_type, reference_id, user_id, note) VALUES (?, ?, 'receive', ?, ?, ?)");
-            if (!$stmt) {
-                throw new Exception('DB prepare failed (stock_transactions): ' . $mysqli->error);
-            }
-            $stmt->bind_param('iiiis', $item, $qty, $receipt_id, $received_by, $note);
+            $stmt = $mysqli->prepare("INSERT INTO stock_transactions (item_id, category_id, qty_change, tx_type, reference_id, user_id, note) VALUES (?, ?, ?, 'receive', ?, ?, ?)");
+            if (!$stmt) throw new Exception('DB prepare failed (stock_transactions): ' . $mysqli->error);
+            $stmt->bind_param('iiiiis', $item, $receipt_category_id, $qty, $receipt_id, $received_by, $note);
             $stmt->execute();
             $stmt->close();
 
@@ -235,7 +128,10 @@ $categories = $mysqli->query("SELECT category_id, name FROM categories ORDER BY 
         <label>Category</label>
         <select id="category" name="category_id" class="form-control">
             <option value="">-- Select Category --</option>
-            <?php while ($c = $categories->fetch_assoc()): ?>
+            <?php 
+            $categories->data_seek(0);
+            while ($c = $categories->fetch_assoc()): 
+            ?>
                 <option value="<?= $c['category_id'] ?>"><?= htmlspecialchars($c['name']) ?></option>
             <?php endwhile; ?>
         </select>
@@ -294,71 +190,90 @@ $categories = $mysqli->query("SELECT category_id, name FROM categories ORDER BY 
 
 <?php include("assets/inc/footer.php"); ?>
 
+<?php
+// Load item-category mappings for the JS
+$item_cat_map = [];
+$has_item_categories = $mysqli->query("SHOW TABLES LIKE 'item_categories'")->num_rows > 0;
+if ($has_item_categories) {
+    $junc_res = $mysqli->query("SELECT item_id, category_id FROM item_categories");
+    if ($junc_res) {
+        while ($jr = $junc_res->fetch_assoc()) {
+            $iid = (int)$jr['item_id'];
+            $cid = (int)$jr['category_id'];
+            if (!isset($item_cat_map[$iid])) $item_cat_map[$iid] = [];
+            $item_cat_map[$iid][] = $cid;
+        }
+    }
+}
+?>
+
 <script>
 var ITEMS_MAP = <?= json_encode($items_map) ?>;
+var ITEM_CAT_MAP = <?= json_encode($item_cat_map) ?>;
+
+/* Get all category IDs for a given item from the junction map */
+function getItemCategoryIds(itemId) {
+    return ITEM_CAT_MAP[itemId] || [];
+}
 
 /* ITEM DETAILS */
 function getItemDetails() {
     var id = document.getElementById('item_id').value;
-    if (!id) return;
+    if (!id) {
+        document.getElementById('current_stock').value = '';
+        return;
+    }
 
     var catSelect = document.getElementById('category');
-    var baseCatId = (ITEMS_MAP[id] && ITEMS_MAP[id].category_id) ? String(ITEMS_MAP[id].category_id) : '';
+    var allowedCats = getItemCategoryIds(id);
 
-    // If no category chosen yet and the item has a stored category, default to it
-    if (catSelect && !catSelect.value && baseCatId) {
-        catSelect.value = baseCatId;
+    // Store current selection
+    var currentVal = catSelect.value;
+    
+    // Filter category dropdown to only show categories linked to this item
+    catSelect.innerHTML = '<option value="">-- Select Category --</option>';
+    
+    // Add only the categories linked to this item, using the options we already have
+    var allOptions = catSelect.options;
+    var catOptions = <?php 
+    $categories->data_seek(0);
+    $cat_opts = [];
+    while ($c = $categories->fetch_assoc()) {
+        $cat_opts[] = ['id' => (int)$c['category_id'], 'name' => $c['name']];
+    }
+    echo json_encode($cat_opts);
+    ?>;
+    
+    catOptions.forEach(function(c) {
+        if (allowedCats.indexOf(c.id) !== -1) {
+            var opt = document.createElement('option');
+            opt.value = c.id;
+            opt.textContent = c.name;
+            catSelect.appendChild(opt);
+        }
+    });
+
+    // Re-select previous value if still valid
+    if (currentVal && allowedCats.indexOf(parseInt(currentVal)) !== -1) {
+        catSelect.value = currentVal;
     }
 
-    // If a category is selected but the item has NO stored category,
-    // treat this as a new variant (e.g. Legal/A5) with no existing stock.
-    if (catSelect && catSelect.value && !baseCatId) {
-        document.getElementById('current_stock').value = 0;
-        return;
-    }
+    refreshCurrentStock();
+}
 
-    // If both are set and they don't match, also treat as new variant with 0 stock
-    if (catSelect && catSelect.value && baseCatId && catSelect.value !== baseCatId) {
-        document.getElementById('current_stock').value = 0;
-        return;
-    }
-
-    // Otherwise, same category or none selected: fetch real current stock
-    fetch('get_item_stock.php?item_id=' + id)
+/* Refetch current stock whenever the selected item or category changes */
+function refreshCurrentStock() {
+    var id = document.getElementById('item_id').value;
+    if (!id) return;
+    var catId = document.getElementById('category').value;
+    var url = 'get_item_stock.php?item_id=' + encodeURIComponent(id);
+    if (catId) url += '&category_id=' + encodeURIComponent(catId);
+    fetch(url)
         .then(r => r.json())
         .then(d => {
             document.getElementById('current_stock').value =
                 d.success ? d.current_stock : 'Error';
         });
-}
-
-/* CATEGORY CHANGE HANDLER */
-function onCategoryChange() {
-    var id = document.getElementById('item_id').value;
-    var catSelect = document.getElementById('category');
-    if (!id || !catSelect) return;
-
-    var baseCatId = (ITEMS_MAP[id] && ITEMS_MAP[id].category_id) ? String(ITEMS_MAP[id].category_id) : '';
-
-    if (!catSelect.value) {
-        // No category selected: refresh based on item only
-        getItemDetails();
-        return;
-    }
-
-    if (!baseCatId) {
-        // Item has no stored category but user picked one: this variant has no stock yet
-        document.getElementById('current_stock').value = 0;
-        return;
-    }
-
-    if (catSelect.value !== baseCatId) {
-        // Different category from item's stored category: show 0
-        document.getElementById('current_stock').value = 0;
-    } else {
-        // Same category: show real stock
-        getItemDetails();
-    }
 }
 
 /* COST CALCULATION */
@@ -386,8 +301,7 @@ function validateForm() {
 /* EVENTS */
 document.addEventListener('DOMContentLoaded', function () {
     document.getElementById('item_id').addEventListener('change', getItemDetails);
-    var catEl = document.getElementById('category');
-    if (catEl) catEl.addEventListener('change', onCategoryChange);
+    document.getElementById('category').addEventListener('change', refreshCurrentStock);
     document.getElementById('quantity').addEventListener('input', calculateTotalCost);
     document.getElementById('cost_per_unit').addEventListener('input', calculateTotalCost);
     document.getElementById('calc_btn').addEventListener('click', calculateTotalCost);

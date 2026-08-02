@@ -1,5 +1,5 @@
 -- Migration: create inventory schema for bursary store
--- Run in MySQL (phpMyAdmin or mysql CLI) while `bursarystore` is selected.
+-- Run in MySQL (phpMyAdmin or mysql CLI) while `bursary` is selected.
 
 SET FOREIGN_KEY_CHECKS = 0;
 

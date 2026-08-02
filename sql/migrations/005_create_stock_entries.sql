@@ -1,5 +1,5 @@
 -- Migration: create legacy stock_entries table for movement history
--- Run in MySQL (phpMyAdmin or mysql CLI) while `bursarystore` is selected.
+-- Run in MySQL (phpMyAdmin or mysql CLI) while `bursary` is selected.
 
 CREATE TABLE IF NOT EXISTS `stock_entries` (
   `entry_id` INT AUTO_INCREMENT PRIMARY KEY,

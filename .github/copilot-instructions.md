@@ -24,7 +24,7 @@ This repo is a monolithic PHP + MySQL web app (OOU Bursary Store inventory). The
 
 - Local dev / run:
   - XAMPP-style: start Apache + MySQL, open `http://localhost/bursary/index.php`.
-  - Default DB name used in config: `bursarystore`. Local dev commonly uses `root` without a password.
+  - Default DB name used in config: `bursary`. Local dev commonly uses `root` without a password.
 
 - Debugging & safety:
   - Temporarily enable `display_errors` and `error_reporting(E_ALL)` in `assets/inc/config.php` only for local debugging; do not commit credential changes.
@@ -80,7 +80,7 @@ This repository is a PHP + MySQL web app (OOU Bursary Store inventory). Use thes
 
 - Testing / running locally:
   - This is an XAMPP-style app: start Apache + MySQL and open `http://localhost/bursary/index.php`.
-  - DB name used by default: `bursarystore` (see `assets/inc/config.php`). Expect `root` user w/o password in local dev.
+  - DB name used by default: `bursary` (see `assets/inc/config.php`). Expect `root` user w/o password in local dev.
 
 - Safe modification checklist for PRs:
   - Update `assets/inc/config.php` only if changing DB credentials; avoid committing production secrets.
@@ -109,7 +109,7 @@ If anything above is unclear or you want more examples from any page, ask and I'
 ## Developer Workflows & Local Run
 
 - Local dev is XAMPP-style: start Apache + MySQL, then open `http://localhost/bursary/index.php`.
-- DB name: default expected in config is `bursarystore` (see [assets/inc/config.php](assets/inc/config.php)). Local dev commonly uses `root` without password.
+- DB name: default expected in config is `bursary` (see [assets/inc/config.php](assets/inc/config.php)). Local dev commonly uses `root` without password.
 - Helpful tools in `tools/`: `create_admin.php` (create local admin), `seed_stationery.php` (seed test items), `count_braces.php` (utility). Use these scripts via browser or CLI PHP when convenient.
 
 ## Conventions & Patterns (project-specific)
@@ -191,7 +191,7 @@ This repository is a PHP + MySQL web app (OOU Bursary Store inventory). Use thes
 
 - Testing / running locally:
   - This is an XAMPP-style app: run Apache + MySQL and open `http://localhost/bursary/index.php`.
-  - DB name used by default: `bursarystore` (see `assets/inc/config.php`). Expect `root` user w/o password in local dev.
+  - DB name used by default: `bursary` (see `assets/inc/config.php`). Expect `root` user w/o password in local dev.
 
 - Safe modification checklist for PRs:
   - Update `assets/inc/config.php` only if changing DB credentials; avoid committing production secrets.

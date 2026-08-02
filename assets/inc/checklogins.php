@@ -11,6 +11,16 @@ function check_login()
     if (!isset($_SESSION['user_id']) || empty($_SESSION['user_id'])) {
         return false;
     }
+
+    // Force a password change before allowing access to any other page
+    if (!empty($_SESSION['must_change_password'])) {
+        $current_page = basename($_SERVER['PHP_SELF'] ?? '');
+        if (!in_array($current_page, ['change_password.php', 'logout.php'], true)) {
+            header('Location: change_password.php');
+            exit;
+        }
+    }
+
     return true;
 }
 

@@ -1,5 +1,5 @@
 -- Migration: create stock_issues table with free-text unit field
--- Run in MySQL (phpMyAdmin or mysql CLI) while `bursarystore` is selected.
+-- Run in MySQL (phpMyAdmin or mysql CLI) while `bursary` is selected.
 
 CREATE TABLE IF NOT EXISTS `stock_issues` (
   `issue_id` INT AUTO_INCREMENT PRIMARY KEY,

@@ -33,14 +33,21 @@ if($has_unit_measure && $has_unit_measure->num_rows){
     $unit_col = "''";
 }
 
+// Check for junction table (many-to-many categories)
+$has_item_categories_dl = false;
+$junc_check = $mysqli->query("SHOW TABLES LIKE 'item_categories'");
+$has_item_categories_dl = $junc_check && $junc_check->num_rows > 0;
+
 // Category: prefer categories.name if categories table + category_id exist
 $category_expr = "it.category";
 $joins = "";
 $has_categories_tbl = $mysqli->query("SHOW TABLES LIKE 'categories'");
 $has_category_id_col = $mysqli->query("SHOW COLUMNS FROM items LIKE 'category_id'");
-if($has_categories_tbl && $has_categories_tbl->num_rows && $has_category_id_col && $has_category_id_col->num_rows){
-    $category_expr = "COALESCE(c.name,it.category)";
-    $joins .= " LEFT JOIN categories c ON it.category_id = c.category_id ";
+if($has_item_categories_dl){
+  $category_expr = "(SELECT GROUP_CONCAT(c2.name ORDER BY c2.name SEPARATOR ', ') FROM item_categories ic2 JOIN categories c2 ON ic2.category_id = c2.category_id WHERE ic2.item_id = it.item_id)";
+} elseif($has_categories_tbl && $has_categories_tbl->num_rows && $has_category_id_col && $has_category_id_col->num_rows){
+  $category_expr = "COALESCE(c.name,it.category)";
+  $joins .= " LEFT JOIN categories c ON it.category_id = c.category_id ";
 }
 
 // Decide how to compute stock and last updated

@@ -1,5 +1,5 @@
 -- Migration: create users and logs tables for bursary app
--- Run this on the `bursarystore` database (phpMyAdmin or mysql CLI)
+-- Run this on the `bursary` database (phpMyAdmin or mysql CLI)
 
 SET FOREIGN_KEY_CHECKS = 0;
 

@@ -5,8 +5,13 @@
     $stmt->bind_param('i', $uid);
     $stmt->execute();
     $res = $stmt->get_result();
+    $dashboard_page = 'admin_dashboard.php';
     
     while($row = $res->fetch_object()) {
+        $row_role = strtolower($row->role ?? '');
+        if (in_array($row_role, ['storekeeper', 'supervisor'])) {
+            $dashboard_page = 'store_dashboard.php';
+        }
 ?>
     <div class="navbar-custom">
         <ul class="list-unstyled topnav-menu float-right mb-0">
@@ -50,7 +55,7 @@
 
         <!-- LOGO -->
         <div class="logo-box">
-            <a href="admin_dashboard.php" class="logo text-center">
+            <a href="<?php echo $dashboard_page; ?>" class="logo text-center">
                 <span class="logo-lg">
                     <img src="assets/images/OOU.png" alt="" height="45">
                 </span>

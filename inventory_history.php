@@ -33,7 +33,7 @@ if($from && $to){
 
     <div class="table-responsive">
       <table class="table table-striped">
-        <thead><tr><th>Date</th><th>Item</th><th>Unit</th><th>Qty</th><th>By</th><th>Purpose</th></tr></thead>
+        <thead><tr><th>Date</th><th>Item</th><th>Category</th><th>Unit</th><th>Qty</th><th>By</th><th>Purpose</th></tr></thead>
         <tbody>
         <?php
         // Support both items.name and items.item_name, and use free-text unit from stock_issues
@@ -44,7 +44,7 @@ if($from && $to){
         }
 
         if($from && $to){
-          $sql = "SELECT si.issued_at, {$itemNameCol} AS item_name, si.unit, si.quantity, si.issued_by, si.purpose
+                    $sql = "SELECT si.issued_at, {$itemNameCol} AS item_name, si.category, si.unit, si.quantity, si.issued_by, si.purpose
               FROM stock_issues si JOIN items it ON si.item_id = it.item_id
               WHERE si.issued_at BETWEEN ? AND ?
               ORDER BY si.issued_at DESC";
@@ -53,7 +53,7 @@ if($from && $to){
           $stmt->execute();
           $res = $stmt->get_result();
         } else {
-          $sql = "SELECT si.issued_at, {$itemNameCol} AS item_name, si.unit, si.quantity, si.issued_by, si.purpose
+                    $sql = "SELECT si.issued_at, {$itemNameCol} AS item_name, si.category, si.unit, si.quantity, si.issued_by, si.purpose
               FROM stock_issues si JOIN items it ON si.item_id = it.item_id
               ORDER BY si.issued_at DESC LIMIT 200";
           $res = $mysqli->query($sql);
@@ -61,8 +61,9 @@ if($from && $to){
 
         while($r = $res->fetch_assoc()){
           echo "<tr>";
-          echo "<td>".htmlentities($r['issued_at'])."</td>";
+                    echo "<td>".htmlentities($r['issued_at'])."</td>";
           echo "<td>".htmlentities($r['item_name'])."</td>";
+          echo "<td>".htmlentities($r['category'] ?? '')."</td>";
           echo "<td>".htmlentities($r['unit'])."</td>";
           echo "<td>".htmlentities($r['quantity'])."</td>";
           echo "<td>".htmlentities($r['issued_by'])."</td>";

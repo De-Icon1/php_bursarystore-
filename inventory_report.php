@@ -2,6 +2,7 @@
 session_start();
 include('assets/inc/config.php');
 include('assets/inc/checklogins.php');
+include('assets/inc/stock_functions.php');
 check_login();
 ?>
 <?php include("assets/inc/head.php"); ?>
@@ -18,72 +19,48 @@ check_login();
         <thead><tr><th>Item</th><th>Category</th><th>Unit/Quantity</th><th>Current Stock</th><th>Total Issued</th><th>Last Updated</th><th>Packs Equivalent</th></tr></thead>
         <tbody>
         <?php
-        // Build an inventory stock report using stock_transactions + stock_issues
-        // Detect item name column
-        $has_name_col = $mysqli->query("SHOW COLUMNS FROM items LIKE 'name'");
+        // Detect item name/unit columns
         $has_item_name_col = $mysqli->query("SHOW COLUMNS FROM items LIKE 'item_name'");
-        if($has_name_col && $has_name_col->num_rows && $has_item_name_col && $has_item_name_col->num_rows){
-          $item_col_select = "COALESCE(it.item_name,it.name)";
-        } elseif($has_item_name_col && $has_item_name_col->num_rows){
-          $item_col_select = "it.item_name";
-        } elseif($has_name_col && $has_name_col->num_rows){
-          $item_col_select = "it.name";
-        } else {
-          $item_col_select = "'Item'";
+        $item_col = ($has_item_name_col && $has_item_name_col->num_rows) ? 'item_name' : 'name';
+        $has_unit_measure = $mysqli->query("SHOW COLUMNS FROM items LIKE 'unit_measure'");
+        $unit_col = ($has_unit_measure && $has_unit_measure->num_rows) ? 'unit_measure' : 'unit';
+
+        // One row per (item, category) so stock/issued reflect that category alone
+        $rows = [];
+        $items_res = $mysqli->query("SELECT item_id, `$item_col` AS item_name, `$unit_col` AS unit FROM items ORDER BY `$item_col`");
+        while($it = $items_res->fetch_assoc()){
+          $item_id = (int)$it['item_id'];
+          $cats_res = $mysqli->query("SELECT c.category_id, c.name FROM item_categories ic JOIN categories c ON c.category_id = ic.category_id WHERE ic.item_id = $item_id ORDER BY c.name");
+          $cats = $cats_res ? $cats_res->fetch_all(MYSQLI_ASSOC) : [];
+
+          $build_row = function($category_id, $category_label) use ($item_id, $it, $mysqli) {
+            $where_cat = $category_id === null ? "category_id IS NULL" : "category_id = " . (int)$category_id;
+            $stock = (float)$mysqli->query("SELECT COALESCE(SUM(qty_change),0) AS s FROM stock_transactions WHERE item_id = $item_id AND $where_cat")->fetch_assoc()['s'];
+            $issued = (float)$mysqli->query("SELECT COALESCE(SUM(-qty_change),0) AS s FROM stock_transactions WHERE item_id = $item_id AND $where_cat AND qty_change < 0")->fetch_assoc()['s'];
+            $lu = $mysqli->query("SELECT MAX(created_at) AS lu FROM stock_transactions WHERE item_id = $item_id AND $where_cat")->fetch_assoc()['lu'];
+            return ['item_name' => $it['item_name'], 'category' => $category_label, 'unit_measure' => $it['unit'], 'stock' => $stock, 'total_issued' => $issued, 'last_updated' => $lu];
+          };
+
+          if(empty($cats)){
+            $rows[] = $build_row(null, '');
+          } else {
+            foreach($cats as $cat){
+              $rows[] = $build_row((int)$cat['category_id'], $cat['name']);
+            }
+            $uncat = (float)$mysqli->query("SELECT COALESCE(SUM(qty_change),0) AS s FROM stock_transactions WHERE item_id = $item_id AND category_id IS NULL")->fetch_assoc()['s'];
+            if($uncat != 0){
+              $rows[] = $build_row(null, '(Uncategorized)');
+            }
+          }
         }
 
-        // Category: prefer categories.name if category_id + categories table exist
-        $category_expr = "it.category";
-        $joins = "";
-        $has_categories_tbl = $mysqli->query("SHOW TABLES LIKE 'categories'");
-        $has_category_id_col = $mysqli->query("SHOW COLUMNS FROM items LIKE 'category_id'");
-        if($has_categories_tbl && $has_categories_tbl->num_rows && $has_category_id_col && $has_category_id_col->num_rows){
-          $category_expr = "COALESCE(c.name,it.category)";
-          $joins .= " LEFT JOIN categories c ON it.category_id = c.category_id ";
-        }
-
-        // Use stock_transactions where available to compute stock, issued, last updated
-        $has_tx = $mysqli->query("SHOW TABLES LIKE 'stock_transactions'");
-        if($has_tx && $has_tx->num_rows > 0){
-          $sql = "SELECT it.item_id,
-                         {$item_col_select} AS item_name,
-                         {$category_expr} AS category,
-                         it.unit_measure,
-                         COALESCE((SELECT SUM(qty_change) FROM stock_transactions st WHERE st.item_id = it.item_id),0) AS stock,
-                         COALESCE((SELECT SUM(-qty_change) FROM stock_transactions st2 WHERE st2.item_id = it.item_id AND st2.qty_change < 0),0) AS total_issued,
-                         (SELECT MAX(created_at) FROM stock_transactions st3 WHERE st3.item_id = it.item_id) AS last_updated
-                  FROM items it
-                  {$joins}
-                  ORDER BY item_name";
-        } else {
-          // Fallback: no transactions table yet; show zero stock/issued
-          $sql = "SELECT it.item_id,
-                         {$item_col_select} AS item_name,
-                         {$category_expr} AS category,
-                         it.unit_measure,
-                         0 AS stock,
-                         0 AS total_issued,
-                         NULL AS last_updated
-                  FROM items it
-                  {$joins}
-                  ORDER BY item_name";
-        }
-
-        $res = $mysqli->query($sql);
-        while($r = $res->fetch_assoc()){
+        foreach($rows as $r){
           // Remove decimal points for whole numbers
           $stock = (float)$r['stock'];
           $stock_display = number_format($stock, 0);
           $issued_display = number_format($r['total_issued'], 0);
 
-          // Derive base name (before any " (Variant)")
-          $name = $r['item_name'];
-          $base_name = $name;
-          $pos = strpos($name, ' (');
-          if($pos !== false){
-            $base_name = substr($name, 0, $pos);
-          }
-          $base_lower = strtolower(trim($base_name));
+          $base_lower = strtolower(trim($r['item_name']));
 
           // Normalize units for key items and compute packs equivalent
           $unit_display = $r['unit_measure'];

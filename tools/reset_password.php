@@ -46,7 +46,8 @@ if(!$user){
 }
 
 $hash = password_hash($new_password, PASSWORD_DEFAULT);
-$upd = $mysqli->prepare('UPDATE users SET password = ? WHERE user_id = ?');
+// force a password change at next login after a reset
+$upd = $mysqli->prepare('UPDATE users SET password = ?, must_change_password = 1 WHERE user_id = ?');
 $upd->bind_param('si', $hash, $user['user_id']);
 if(!$upd->execute()){
     echo "Failed to update password: " . $upd->error . "\n";

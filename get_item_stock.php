@@ -10,8 +10,9 @@ if($item_id <= 0){
     echo json_encode(['success'=>false,'message'=>'Invalid item']);
     exit;
 }
+$category_id = isset($_GET['category_id']) ? (int)$_GET['category_id'] : null;
 
-$current = get_item_current_stock($item_id);
+$current = get_item_current_stock($item_id, $category_id);
 echo json_encode(['success'=>true,'current_stock'=>$current]);
 exit;
 ?>

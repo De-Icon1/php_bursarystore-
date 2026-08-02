@@ -17,14 +17,14 @@ if(isset($_POST['admin_login'])) {
 
     // Fetch user
     $stmt = $mysqli->prepare(
-        "SELECT user_id, username, password, role, full_name FROM users WHERE username = ?"
+        "SELECT user_id, username, password, role, full_name, must_change_password FROM users WHERE username = ?"
     );
     $stmt->bind_param("s", $username);
     $stmt->execute();
     $stmt->store_result();
 
     if($stmt->num_rows === 1){
-        $stmt->bind_result($user_id, $db_username, $db_password, $user_role, $full_name);
+        $stmt->bind_result($user_id, $db_username, $db_password, $user_role, $full_name, $must_change_password);
         $stmt->fetch();
 
         // verify password using standard PHP password hashing
@@ -38,11 +38,24 @@ if(isset($_POST['admin_login'])) {
             $_SESSION['username']  = $db_username;
             $_SESSION['full_name'] = $full_name;
             $_SESSION['role']      = $role_normalized;
+            $_SESSION['must_change_password'] = (bool)$must_change_password;
+
+            // force a password reset before granting access to any dashboard
+            if($_SESSION['must_change_password']){
+                header("Location: change_password.php");
+                exit;
+            }
 
             // role-based redirects (use normalized role)
             switch($role_normalized){
                 case 'admin':
+                case 'superadmin':
+                case 'director':
                     header("Location: admin_dashboard.php");
+                    break;
+                case 'storekeeper':
+                case 'supervisor':
+                    header("Location: store_dashboard.php");
                     break;
                 case 'vc':
                     header("Location: vc_dashboard.php");

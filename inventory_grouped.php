@@ -2,90 +2,54 @@
 session_start();
 include('assets/inc/config.php');
 include('assets/inc/checklogins.php');
+include('assets/inc/stock_functions.php');
 check_login();
 
-// Optional filter by base item group like "Paper" or "HP Toner 85A"
+// Optional filter by item name, e.g. "Paper"
 $selected_group = isset($_GET['group']) ? trim($_GET['group']) : '';
 
-// Detect item name column
+// Detect item name/unit columns
 $has_name_col = $mysqli->query("SHOW COLUMNS FROM items LIKE 'name'");
 $has_item_name_col = $mysqli->query("SHOW COLUMNS FROM items LIKE 'item_name'");
-if($has_item_name_col && $has_item_name_col->num_rows){
-  $item_col_select = "it.item_name";
-} elseif($has_name_col && $has_name_col->num_rows){
-  $item_col_select = "it.name";
-} else {
-  $item_col_select = "'Item'";
-}
+$item_col = ($has_item_name_col && $has_item_name_col->num_rows) ? 'item_name' : 'name';
 
-// Build groups by base name (strip trailing " (Variant)") and compute pack-equivalents
-// Category: prefer categories.name if category_id + categories table exist
-$category_expr = "it.category";
-$joins = "";
-$has_categories_tbl = $mysqli->query("SHOW TABLES LIKE 'categories'");
-$has_category_id_col = $mysqli->query("SHOW COLUMNS FROM items LIKE 'category_id'");
-if($has_categories_tbl && $has_categories_tbl->num_rows && $has_category_id_col && $has_category_id_col->num_rows){
-  $category_expr = "COALESCE(c.name,it.category)";
-  $joins .= " LEFT JOIN categories c ON it.category_id = c.category_id ";
-}
-
-// Detect unit column
 $has_unit_measure = $mysqli->query("SHOW COLUMNS FROM items LIKE 'unit_measure'");
-$has_unit = $mysqli->query("SHOW COLUMNS FROM items LIKE 'unit'");
-if($has_unit_measure && $has_unit_measure->num_rows){
-  $unit_col = "it.unit_measure";
-} elseif($has_unit && $has_unit->num_rows){
-  $unit_col = "it.unit";
-} else {
-  $unit_col = "''";
-}
+$unit_col = ($has_unit_measure && $has_unit_measure->num_rows) ? 'unit_measure' : 'unit';
 
-// Decide how to compute stock
-$has_tx = $mysqli->query("SHOW TABLES LIKE 'stock_transactions'");
-
-if($has_tx && $has_tx->num_rows > 0){
-  $sql = "SELECT it.item_id,
-                 {$item_col_select} AS item_name,
-                 {$category_expr} AS category,
-                 {$unit_col} AS unit,
-                 COALESCE((SELECT SUM(qty_change) FROM stock_transactions st WHERE st.item_id = it.item_id),0) AS stock,
-                 (SELECT MAX(created_at) FROM stock_transactions st2 WHERE st2.item_id = it.item_id) AS last_updated
-          FROM items it
-          {$joins}
-          ORDER BY item_name";
-} else {
-  $sql = "SELECT it.item_id,
-                 {$item_col_select} AS item_name,
-                 {$category_expr} AS category,
-                 {$unit_col} AS unit,
-                 0 AS stock,
-                 NULL AS last_updated
-          FROM items it
-          {$joins}
-          ORDER BY item_name";
-}
-
+// Each item is now its own group; categories are shown as rows (variants) within it.
 $groups = [];
 $group_totals = [];
 
-if($res = $mysqli->query($sql)){
-  while($row = $res->fetch_assoc()){
-    $name = $row['item_name'];
-    $group_name = $name;
-    // If name looks like "Paper (A4)", use "Paper" as group label
-    $pos = strpos($name, ' (');
-    if($pos !== false){
-      $group_name = substr($name, 0, $pos);
-    }
+$items_res = $mysqli->query("SELECT item_id, `$item_col` AS item_name, `$unit_col` AS unit FROM items ORDER BY `$item_col`");
+while($it = $items_res->fetch_assoc()){
+  $item_id = (int)$it['item_id'];
+  $group_name = $it['item_name'];
 
-    // Initialize group bucket if needed
-    if(!isset($groups[$group_name])){
-      $groups[$group_name] = [];
-      $group_totals[$group_name] = 0;
+  $cats_res = $mysqli->query("SELECT c.category_id, c.name FROM item_categories ic JOIN categories c ON c.category_id = ic.category_id WHERE ic.item_id = $item_id ORDER BY c.name");
+  $cats = $cats_res ? $cats_res->fetch_all(MYSQLI_ASSOC) : [];
+
+  $rows = [];
+  if(empty($cats)){
+    $stock = get_item_current_stock($item_id);
+    $lu = $mysqli->query("SELECT MAX(created_at) AS lu FROM stock_transactions WHERE item_id = $item_id")->fetch_assoc()['lu'];
+    $rows[] = ['item_name' => $it['item_name'], 'category' => '—', 'unit' => $it['unit'], 'stock' => $stock, 'last_updated' => $lu];
+  } else {
+    foreach($cats as $cat){
+      $cid = (int)$cat['category_id'];
+      $stock = get_item_current_stock($item_id, $cid);
+      $lu = $mysqli->query("SELECT MAX(created_at) AS lu FROM stock_transactions WHERE item_id = $item_id AND category_id = $cid")->fetch_assoc()['lu'];
+      $rows[] = ['item_name' => $it['item_name'], 'category' => $cat['name'], 'unit' => $it['unit'], 'stock' => $stock, 'last_updated' => $lu];
     }
-    $groups[$group_name][] = $row;
-    $group_totals[$group_name] += (float)$row['stock'];
+    // Stock recorded before a category was linked (category_id NULL) still needs to be shown
+    $uncat = (int)$mysqli->query("SELECT COALESCE(SUM(qty_change),0) AS s FROM stock_transactions WHERE item_id = $item_id AND category_id IS NULL")->fetch_assoc()['s'];
+    if($uncat != 0){
+      $lu = $mysqli->query("SELECT MAX(created_at) AS lu FROM stock_transactions WHERE item_id = $item_id AND category_id IS NULL")->fetch_assoc()['lu'];
+      $rows[] = ['item_name' => $it['item_name'], 'category' => '(Uncategorized)', 'unit' => $it['unit'], 'stock' => $uncat, 'last_updated' => $lu];
+    }
   }
+
+  $groups[$group_name] = $rows;
+  $group_totals[$group_name] = array_sum(array_column($rows, 'stock'));
 }
 
 ksort($groups);

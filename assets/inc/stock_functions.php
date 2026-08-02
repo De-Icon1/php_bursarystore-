@@ -3,15 +3,23 @@
 // Depends on a global `$mysqli` from `assets/inc/config.php` and `log_action()` in `assets/inc/functions.php`.
 
 /**
- * Get current stock level for an item (sum of qty_change in stock_transactions)
+ * Get current stock level for an item, optionally scoped to one category
+ * (sum of qty_change in stock_transactions)
  */
-function get_item_current_stock($item_id)
+function get_item_current_stock($item_id, $category_id = null)
 {
     global $mysqli;
     $qty = 0;
-    $stmt = $mysqli->prepare("SELECT COALESCE(SUM(qty_change),0) FROM stock_transactions WHERE item_id = ?");
-    if(!$stmt) return 0;
-    $stmt->bind_param('i', $item_id);
+    if ($category_id !== null && $category_id !== '' && (int)$category_id > 0) {
+        $cid = (int)$category_id;
+        $stmt = $mysqli->prepare("SELECT COALESCE(SUM(qty_change),0) FROM stock_transactions WHERE item_id = ? AND category_id = ?");
+        if(!$stmt) return 0;
+        $stmt->bind_param('ii', $item_id, $cid);
+    } else {
+        $stmt = $mysqli->prepare("SELECT COALESCE(SUM(qty_change),0) FROM stock_transactions WHERE item_id = ?");
+        if(!$stmt) return 0;
+        $stmt->bind_param('i', $item_id);
+    }
     $stmt->execute();
     $stmt->bind_result($qty);
     $stmt->fetch();
@@ -23,11 +31,12 @@ function get_item_current_stock($item_id)
  * Receive stock: inserts a receipt, receipt item and a stock transaction.
  * Returns array: ['success'=>bool, 'message'=>string, 'receipt_id'=>int|null]
  */
-function receive_stock($item_id, $quantity, $supplier = null, $received_by = null, $unit_cost = null, $reference = null, $note = null)
+function receive_stock($item_id, $quantity, $supplier = null, $received_by = null, $unit_cost = null, $reference = null, $note = null, $category_id = null)
 {
     global $mysqli;
 
     if($quantity <= 0) return ['success'=>false, 'message'=>'Quantity must be greater than zero'];
+    $cid = ($category_id !== null && (int)$category_id > 0) ? (int)$category_id : null;
 
     $mysqli->begin_transaction();
     try {
@@ -38,17 +47,17 @@ function receive_stock($item_id, $quantity, $supplier = null, $received_by = nul
         $receipt_id = $stmt->insert_id;
         $stmt->close();
 
-        $stmt = $mysqli->prepare("INSERT INTO receipt_items (receipt_id, item_id, quantity, unit_cost) VALUES (?, ?, ?, ?)");
+        $stmt = $mysqli->prepare("INSERT INTO receipt_items (receipt_id, item_id, category_id, quantity, unit_cost) VALUES (?, ?, ?, ?, ?)");
         if(!$stmt) throw new Exception('Prepare failed (receipt_items)');
         // ensure unit_cost is float or null
         $uc = $unit_cost !== null ? (float)$unit_cost : null;
-        $stmt->bind_param('iiid', $receipt_id, $item_id, $quantity, $uc);
+        $stmt->bind_param('iiiid', $receipt_id, $item_id, $cid, $quantity, $uc);
         $stmt->execute();
         $stmt->close();
 
-        $stmt = $mysqli->prepare("INSERT INTO stock_transactions (item_id, qty_change, tx_type, reference_id, user_id, note) VALUES (?, ?, 'receive', ?, ?, ?)");
+        $stmt = $mysqli->prepare("INSERT INTO stock_transactions (item_id, category_id, qty_change, tx_type, reference_id, user_id, note) VALUES (?, ?, ?, 'receive', ?, ?, ?)");
         if(!$stmt) throw new Exception('Prepare failed (stock_transactions)');
-        $stmt->bind_param('iiiis', $item_id, $quantity, $receipt_id, $received_by, $note);
+        $stmt->bind_param('iiiiis', $item_id, $cid, $quantity, $receipt_id, $received_by, $note);
         $stmt->execute();
         $stmt->close();
 

@@ -277,7 +277,10 @@ if($has_stock_issues){
                                     $joins = "";
                                     $has_categories = $mysqli->query("SHOW TABLES LIKE 'categories'")->num_rows;
                                     $has_category_id = $mysqli->query("SHOW COLUMNS FROM items LIKE 'category_id'")->num_rows;
-                                    if($has_categories && $has_category_id){
+                                    $has_item_categories_vc = $mysqli->query("SHOW TABLES LIKE 'item_categories'")->num_rows;
+                                    if($has_item_categories_vc){
+                                        $category_expr = "(SELECT GROUP_CONCAT(c2.name ORDER BY c2.name SEPARATOR ', ') FROM item_categories ic2 JOIN categories c2 ON ic2.category_id = c2.category_id WHERE ic2.item_id = it.item_id)";
+                                    } elseif($has_categories && $has_category_id){
                                         $category_expr = "COALESCE(c.name, it.category)";
                                         $joins = " LEFT JOIN categories c ON it.category_id = c.category_id ";
                                     }

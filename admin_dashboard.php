@@ -13,6 +13,7 @@ $uid = $_SESSION['user_id'];
 $username = $_SESSION['username'] ?? '';
 $role = $_SESSION['role'] ?? '';
 $full_name = $_SESSION['full_name'] ?? '';
+$message = trim($_GET['message'] ?? '');
 
 // If a VC somehow reached admin dashboard, redirect them to the VC dashboard
 if(strtolower(trim($role)) === 'vice chancellor' || strtolower(trim($role)) === 'vc'){
@@ -58,6 +59,15 @@ if(strtolower(trim($role)) === 'vice chancellor' || strtolower(trim($role)) === 
                             </div>
                         </div>     
                         <!-- end page title --> 
+                        <?php if (!empty($message)): ?>
+                        <div class="row mb-3">
+                            <div class="col-12">
+                                <div class="alert alert-warning">
+                                    <?php echo htmlspecialchars($message); ?>
+                                </div>
+                            </div>
+                        </div>
+                        <?php endif; ?>
                         <!-- Role-specific quick links -->
                         <div class="row mb-3">
                             <div class="col-12">

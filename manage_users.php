@@ -4,8 +4,8 @@ include('assets/inc/config.php');
 include('assets/inc/checklogins.php');
 check_login();
 
-// Only allow admin, director or superadmin to manage users
-if(!in_array(strtolower($_SESSION['role'] ?? ''), ['admin','director','superadmin'])){
+// Only allow admin, hod or superadmin to manage users
+if(!in_array(strtolower($_SESSION['role'] ?? ''), ['admin','hod','superadmin'])){
     header('Location: admin_dashboard.php');
     exit;
 }
@@ -14,10 +14,10 @@ if(!in_array(strtolower($_SESSION['role'] ?? ''), ['admin','director','superadmi
 $current_user_role = strtolower($_SESSION['role'] ?? '');
 $available_roles = [];
 if($current_user_role === 'superadmin'){
-    $available_roles = ['superadmin','admin','director','supervisor','storekeeper'];
+    $available_roles = ['superadmin','admin','hod','supervisor','storekeeper'];
 } elseif($current_user_role === 'admin'){
-    $available_roles = ['admin','director','supervisor','storekeeper'];
-} elseif($current_user_role === 'director'){
+    $available_roles = ['admin','hod','supervisor','storekeeper'];
+} elseif($current_user_role === 'hod'){
     $available_roles = ['supervisor','storekeeper'];
 } else {
     $available_roles = ['storekeeper'];
@@ -27,7 +27,7 @@ if($current_user_role === 'superadmin'){
 $role_hierarchy = [
     'storekeeper' => 1,
     'supervisor'  => 2,
-    'director'    => 3,
+    'hod'         => 3,
     'admin'       => 4,
     'superadmin'  => 5,
 ];
